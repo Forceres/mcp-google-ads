@@ -1,0 +1,12 @@
+target/
+dogfood-output/
+assets/
+docs/
+scripts/
+.claude/
+.git/
+.github/
+.env
+.envrc
+credentials.json
+token.json

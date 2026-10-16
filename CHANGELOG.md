@@ -5,6 +5,41 @@ All notable changes to `mcp-google-ads` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - 2026-10-16
+
+### Added
+
+- **Streamable HTTP transport.** Set `GOOGLE_ADS_MCP_TRANSPORT=streamable-http`
+  and the binary stops reading stdin and instead serves MCP at
+  `http://<host>:<port>/mcp`, with `GET /health` for probes. The endpoint
+  layout, the `PORT` variable and the 8080 default match the official
+  `googleads/google-ads-mcp` server, so a client configured for one points at
+  the other by changing the URL. Sessions are stateful, so clients that rely
+  on `Mcp-Session-Id` and the GET SSE channel work alongside newer ones.
+  stdio remains the default and is unchanged.
+
+  The server can spend money, so the transport is closed by default and opens
+  only when told to: it binds `127.0.0.1` unless `GOOGLE_ADS_MCP_HOST` says
+  otherwise, refuses `Host` headers other than loopback (DNS-rebinding
+  protection) unless `GOOGLE_ADS_MCP_ALLOWED_HOSTS` lists the real hostname,
+  and when `GOOGLE_ADS_MCP_BEARER_TOKEN` is set answers `401` to any `/mcp`
+  request without that token. Binding a non-loopback address without a token
+  logs a warning at startup. `GOOGLE_ADS_MCP_ALLOWED_ORIGINS` optionally
+  restricts browser origins. SIGINT and SIGTERM shut the server down and close
+  open sessions.
+
+- A `Dockerfile` that builds the release binary and serves Streamable HTTP on
+  port 8080, with no credentials baked in, plus README instructions for
+  Docker and Google Cloud Run.
+
+### Changed
+
+- `Config` has two new fields, `transport` and `http`, and `Config::load`
+  now fails on an unknown `GOOGLE_ADS_MCP_TRANSPORT` or a non-numeric `PORT`
+  rather than silently serving stdio on a port nobody asked for. Library
+  callers building `Config` by struct literal must add the fields (both have
+  `Default`).
+
 ## [0.13.0] - 2026-08-24
 
 ### Added

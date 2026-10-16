@@ -95,6 +95,7 @@ An MCP server that gives Claude full read + write access to Google Ads accounts 
 - **Audit logging** - Every mutation logged to a local JSON file with timestamp and dry-run status
 - **Read-only mode** - Expose only read tools for safe observability
 - **Zero config files** - Configured entirely via environment variables
+- **Two transports** - stdio for local clients, or Streamable HTTP at `/mcp` for Docker, Cloud Run, and shared servers (same endpoint layout as the official `google-ads-mcp`)
 
 ---
 
@@ -117,7 +118,8 @@ cargo build --release
 
 ### 3. Configure Claude Code
 
-Add to `~/.claude/settings.json`:
+The default transport is stdio: the client launches the binary. Add to
+`~/.claude/settings.json`:
 
 ```json
 {
@@ -134,6 +136,9 @@ Add to `~/.claude/settings.json`:
   }
 }
 ```
+
+To run the server as its own process (Docker, Cloud Run, several clients
+sharing one server) see [Transports](#transports).
 
 ---
 
@@ -154,6 +159,144 @@ All configuration is via environment variables. No config files.
 | `GOOGLE_ADS_AUDIT_LOG` | `~/.mcp-google-ads/audit.log` | Path for mutation audit log |
 | `GOOGLE_ADS_BLOCKED_OPS` | | Comma-separated list of blocked operations |
 | `GOOGLE_ADS_READ_ONLY` | `false` | Disable all write tools |
+| `GOOGLE_ADS_MCP_TRANSPORT` | `stdio` | `stdio` or `streamable-http` |
+| `GOOGLE_ADS_MCP_HOST` | `127.0.0.1` | Interface to bind (HTTP only). `0.0.0.0` inside containers |
+| `PORT` | `8080` | TCP port (HTTP only). Cloud Run sets this |
+| `GOOGLE_ADS_MCP_BEARER_TOKEN` | | Required `Authorization: Bearer` token for `/mcp` (HTTP only) |
+| `GOOGLE_ADS_MCP_ALLOWED_HOSTS` | loopback | Comma-separated `Host` values accepted (HTTP only). `*` for any |
+| `GOOGLE_ADS_MCP_ALLOWED_ORIGINS` | | Comma-separated browser origins accepted (HTTP only) |
+
+---
+
+## Transports
+
+### stdio (default)
+
+The MCP client starts the binary and talks JSON-RPC over its stdin/stdout.
+Nothing listens on the network. This is the Quick Start configuration above.
+
+### Streamable HTTP
+
+Set `GOOGLE_ADS_MCP_TRANSPORT=streamable-http` and the binary becomes a
+standalone server exposing MCP at `http://<host>:<port>/mcp`, plus
+`GET /health` for probes. It mirrors the official
+[`google-ads-mcp`](https://github.com/googleads/google-ads-mcp) layout
+(port 8080, `/mcp`), so client configurations written for that server work
+here with only the URL and credentials changed. Sessions are stateful
+(`Mcp-Session-Id` plus the GET SSE channel), so both MCP 2025 clients and
+newer sessionless clients connect.
+
+```bash
+export GOOGLE_ADS_DEVELOPER_TOKEN=... GOOGLE_ADS_CUSTOMER_ID=123-456-7890
+export GOOGLE_ADS_MCP_TRANSPORT=streamable-http
+export GOOGLE_ADS_MCP_BEARER_TOKEN="$(openssl rand -hex 32)"
+./target/release/mcp-google-ads
+# INFO MCP Streamable HTTP endpoint at http://127.0.0.1:8080/mcp (health at /health)
+```
+
+Then point a client at it:
+
+```bash
+# Claude Code
+claude mcp add --transport http google-ads http://localhost:8080/mcp \
+  --header "Authorization: Bearer $GOOGLE_ADS_MCP_BEARER_TOKEN"
+
+# Codex
+codex mcp add google_ads --url http://localhost:8080/mcp
+```
+
+For Codex, name the environment variable holding the token in
+`~/.codex/config.toml`:
+
+```toml
+[mcp_servers.google_ads]
+url = "http://localhost:8080/mcp"
+bearer_token_env_var = "GOOGLE_ADS_MCP_BEARER_TOKEN"
+```
+
+Or in any `mcpServers` block:
+
+```json
+{
+  "mcpServers": {
+    "google-ads": {
+      "url": "http://localhost:8080/mcp",
+      "headers": { "Authorization": "Bearer <token>" }
+    }
+  }
+}
+```
+
+Credentials stay with the server process: the client configuration holds only
+the URL and the bearer token, never the developer token or the OAuth refresh
+token.
+
+**Exposure rules.** Every tool on this server can spend money, so the HTTP
+transport is locked down by default and loosens only when told to:
+
+- The bind address is `127.0.0.1`. Set `GOOGLE_ADS_MCP_HOST=0.0.0.0` to accept
+  connections from outside the machine (containers need this). Doing so without
+  `GOOGLE_ADS_MCP_BEARER_TOKEN` logs a warning at startup.
+- `Host` headers other than `localhost`, `127.0.0.1` and `::1` are refused with
+  `403` (DNS-rebinding protection, as the MCP specification recommends). A
+  deployment behind a real hostname lists it in `GOOGLE_ADS_MCP_ALLOWED_HOSTS`
+  (`ads.example.com` or `ads.example.com:8080`). `*` disables the check.
+- `Origin` is not checked unless `GOOGLE_ADS_MCP_ALLOWED_ORIGINS` names the
+  browser origins allowed to call the endpoint.
+- The MCP endpoint answers `401` with `WWW-Authenticate: Bearer` when a token is
+  configured and the request carries none, or the wrong one. `/health` never
+  requires one.
+
+### Docker
+
+The bundled `Dockerfile` builds the release binary and serves Streamable HTTP
+on port 8080, bound to all interfaces inside the container. Keep credentials in
+an env file outside the repository, and mount a volume for the refresh token
+and audit log:
+
+```bash
+docker build -t mcp-google-ads .
+docker run --rm -p 127.0.0.1:8080:8080 \
+  --env-file ~/.mcp-google-ads/server.env \
+  -v mcp-google-ads-state:/var/lib/mcp-google-ads \
+  mcp-google-ads
+```
+
+with `server.env` holding at least:
+
+```
+GOOGLE_ADS_DEVELOPER_TOKEN=...
+GOOGLE_ADS_CUSTOMER_ID=123-456-7890
+GOOGLE_ADS_MCP_BEARER_TOKEN=...
+```
+
+and `credentials.json` / `token.json` copied into the volume (or their paths
+overridden with `GOOGLE_ADS_CREDENTIALS_PATH` / `GOOGLE_ADS_TOKEN_PATH` and
+mounted). Publishing the port on `127.0.0.1` keeps the server reachable from
+local agents only. The container's `/health` HEALTHCHECK needs no token.
+
+### Google Cloud Run
+
+Build with Cloud Build, then deploy with the HTTP transport variables and the
+service's own hostname in the allowed-hosts list:
+
+```bash
+gcloud artifacts repositories create mcp-servers --repository-format=docker --location=us-central1
+gcloud builds submit --tag us-central1-docker.pkg.dev/YOUR_PROJECT_ID/mcp-servers/mcp-google-ads:latest .
+
+gcloud run deploy mcp-google-ads \
+  --image us-central1-docker.pkg.dev/YOUR_PROJECT_ID/mcp-servers/mcp-google-ads:latest \
+  --platform managed --region us-central1 --allow-unauthenticated \
+  --set-env-vars="GOOGLE_ADS_DEVELOPER_TOKEN=...,GOOGLE_ADS_CUSTOMER_ID=...,GOOGLE_ADS_MCP_BEARER_TOKEN=...,GOOGLE_ADS_MCP_ALLOWED_HOSTS=mcp-google-ads-xxxx.a.run.app"
+```
+
+Cloud Run injects `PORT`; the image already sets the transport and bind
+address. `--allow-unauthenticated` lets MCP clients reach the endpoint, and the
+bearer token is what then keeps the account private, so treat it like the
+developer token. The service URL is only known after the first deploy; update
+`GOOGLE_ADS_MCP_ALLOWED_HOSTS` once you have it. Credentials and the refresh
+token must be supplied to the container (Secret Manager mounted as files is
+the usual route), since the image contains none.
 
 ---
 
@@ -287,6 +430,7 @@ All write tools return a preview. Call `confirm_and_apply` with `dry_run=false` 
 | **Total tools** | 50 | 43 | 52 | 63 | 2 |
 | **Write tools** | 32 | 16 | 26 | 25 | 0 |
 | **Tests** | 322 | partial | 0 | 0 | N/A |
+| **Transports** | stdio, Streamable HTTP | stdio | stdio | stdio | stdio, Streamable HTTP |
 
 ### Features
 

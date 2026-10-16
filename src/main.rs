@@ -1,5 +1,5 @@
-use mcp_google_ads::config::Config;
-use mcp_google_ads::error::Result;
+use mcp_google_ads::config::{Config, Transport};
+use mcp_google_ads::error::{McpGoogleAdsError, Result};
 
 use rmcp::ServiceExt;
 
@@ -13,23 +13,32 @@ async fn main() -> Result<()> {
         .with_writer(std::io::stderr)
         .init();
 
-    tracing::info!("Starting MCP Google Ads server");
-
     let config = Config::load()?;
+    tracing::info!(
+        "Starting MCP Google Ads server ({} transport)",
+        config.transport.as_str()
+    );
+
+    let transport = config.transport;
+    let http = config.http.clone();
     let server = mcp_google_ads::GoogleAdsMcp::new(config)?;
 
-    let transport = rmcp::transport::io::stdio();
+    match transport {
+        Transport::Stdio => serve_stdio(server).await,
+        Transport::StreamableHttp => mcp_google_ads::http::serve(server, &http).await,
+    }
+}
 
-    let service = server.serve(transport).await.map_err(|e| {
-        mcp_google_ads::error::McpGoogleAdsError::Config(format!(
-            "Failed to start MCP server: {}",
-            e
-        ))
-    })?;
+async fn serve_stdio(server: mcp_google_ads::GoogleAdsMcp) -> Result<()> {
+    let service = server
+        .serve(rmcp::transport::io::stdio())
+        .await
+        .map_err(|e| McpGoogleAdsError::Config(format!("Failed to start MCP server: {}", e)))?;
 
-    service.waiting().await.map_err(|e| {
-        mcp_google_ads::error::McpGoogleAdsError::Config(format!("Server error: {}", e))
-    })?;
+    service
+        .waiting()
+        .await
+        .map_err(|e| McpGoogleAdsError::Config(format!("Server error: {}", e)))?;
 
     Ok(())
 }
