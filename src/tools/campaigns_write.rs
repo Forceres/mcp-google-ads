@@ -24,6 +24,8 @@ fn dollars_to_micros(dollars: f64) -> i64 {
 pub struct DraftCampaignParams<'a> {
     pub config: &'a Config,
     pub customer_id: &'a str,
+    pub merchant_id: Option<&'a str>,
+    pub campaign_priority: Option<u8>,
     pub campaign_name: &'a str,
     pub daily_budget: f64,
     pub bidding_strategy: &'a str,
@@ -88,6 +90,24 @@ pub fn draft_campaign(params: &DraftCampaignParams) -> Result<serde_json::Value>
         campaign_create
             .as_object_mut()
             .map(|o| o.insert("networkSettings".to_string(), network_settings));
+    }
+
+    if let Some(campaign_priority) = params.campaign_priority {
+        campaign_create.as_object_mut().map(|o| {
+            o.insert(
+                "campaignPriority".to_string(),
+                serde_json::Value::Number(campaign_priority.into()),
+            )
+        });
+    }
+
+    if let Some(merchant_id) = params.merchant_id {
+        campaign_create.as_object_mut().map(|o| {
+            o.insert(
+                "merchantId".to_string(),
+                serde_json::Value::String(merchant_id.to_string()),
+            )
+        });
     }
 
     // Apply bidding strategy
@@ -688,6 +708,8 @@ mod tests {
             bidding_strategy: "MAXIMIZE_CONVERSIONS",
             target_cpa: None,
             target_roas: None,
+            campaign_priority: None,
+            merchant_id: None,
             channel_type: "SEARCH",
             ad_group_name: "Test Ad Group",
             keywords: vec![],
@@ -708,6 +730,8 @@ mod tests {
 
         let result = draft_campaign(&DraftCampaignParams {
             config: &config,
+            campaign_priority: None,
+            merchant_id: None,
             customer_id: "123-456-7890",
             campaign_name: "Test Campaign",
             daily_budget: 5.0,
@@ -735,6 +759,8 @@ mod tests {
             config: &config,
             customer_id: "123-456-7890",
             campaign_name: "Test Campaign",
+            campaign_priority: None,
+            merchant_id: None,
             daily_budget: 5.0,
             bidding_strategy: "MAXIMIZE_CONVERSIONS",
             target_cpa: Some(10.0),
@@ -874,6 +900,8 @@ mod tests {
             config: &config,
             customer_id: "123-456-7890",
             campaign_name: "C1",
+            campaign_priority: None,
+            merchant_id: None,
             daily_budget: 5.0,
             bidding_strategy: "MAXIMIZE_CONVERSIONS",
             target_cpa: None,
@@ -898,6 +926,8 @@ mod tests {
             customer_id: "123-456-7890",
             campaign_name: "C1",
             daily_budget: 5.0,
+            campaign_priority: None,
+            merchant_id: None,
             bidding_strategy: "MAXIMIZE_CONVERSIONS",
             target_cpa: None,
             target_roas: None,
@@ -922,6 +952,8 @@ mod tests {
             customer_id: "123-456-7890",
             campaign_name: "Payload Test",
             daily_budget: 5.0,
+            campaign_priority: None,
+            merchant_id: None,
             bidding_strategy: "MAXIMIZE_CONVERSIONS",
             target_cpa: None,
             target_roas: None,
@@ -1199,6 +1231,8 @@ mod tests {
             config: &config,
             customer_id: "1234567890",
             campaign_name: "C",
+            campaign_priority: None,
+            merchant_id: None,
             daily_budget: 5.0,
             bidding_strategy: "MAXIMIZE_CONVERSIONS",
             target_cpa: None,
@@ -1252,6 +1286,8 @@ mod tests {
             config: &config,
             customer_id: "1234567890",
             campaign_name: "C",
+            campaign_priority: None,
+            merchant_id: None,
             daily_budget: 5.0,
             bidding_strategy: "MAXIMIZE_CONVERSIONS",
             target_cpa: None,

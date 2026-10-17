@@ -94,6 +94,10 @@ pub struct DraftCampaignToolParams {
     pub customer_id: Option<String>,
     /// Name for the new campaign.
     pub campaign_name: String,
+    /// The Merchant Center ID of the account that contains the products to advertise.
+    pub merchant_id: Option<String>,
+    /// The priority of the Shopping campaign. Campaigns with numerically higher priorities take precedence over those with lower priorities. Allowed values are between 0 and 2, inclusive.
+    pub campaign_priority: Option<u8>,
     /// Daily budget in dollars (e.g. 50.0).
     pub daily_budget: f64,
     /// Bidding strategy (e.g. MAXIMIZE_CONVERSIONS, TARGET_CPA, MANUAL_CPC).
@@ -1090,6 +1094,8 @@ impl GoogleAdsMcp {
             bidding_strategy: &params.bidding_strategy,
             target_cpa: params.target_cpa,
             target_roas: params.target_roas,
+            merchant_id: params.merchant_id.as_deref(),
+            campaign_priority: params.campaign_priority,
             channel_type,
             ad_group_name,
             keywords,
