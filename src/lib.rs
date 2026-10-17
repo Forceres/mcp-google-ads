@@ -462,8 +462,9 @@ pub struct ConfirmApplyParams {
     /// If true (default), returns a preview without executing. Set to false to apply changes.
     pub dry_run: Option<bool>,
     /// One-shot opt out of the `require_dry_run` safety guard for THIS apply.
-    /// Defaults to `false`. Does NOT mutate the global config. Use this only
-    /// when you explicitly know you want to apply without a prior dry-run.
+    /// Defaults to `false`. Does NOT mutate the global config. Not needed once
+    /// the plan has passed a dry run; use it only when you deliberately want to
+    /// apply a plan without dry-running it first.
     pub bypass_require_dry_run: Option<bool>,
     /// Acknowledgement for plans flagged `requires_double_confirm`. Without
     /// `confirmed_twice=true`, those plans return an error and do nothing.
@@ -2201,7 +2202,7 @@ impl GoogleAdsMcp {
     // ── Confirm & Apply ─────────────────────────────────────────────────
 
     #[tool(
-        description = "Execute a previously previewed change. IMPORTANT: defaults to dry_run=true. Set dry_run=false to make real changes. If config.safety.require_dry_run is true, dry_run=false will be rejected unless bypass_require_dry_run=true is also set. If the mutate is rejected by Google ad policy, the error lists the offending text and policy; when those violations are exemptible (common for medical/health keywords), retry the same plan_id with exempt_policy_violations=true."
+        description = "Execute a previously previewed change. IMPORTANT: defaults to dry_run=true. A dry run sends the plan to the Google Ads API with validateOnly=true, so Google's full validation runs and nothing is written; when it passes, the plan is marked dry_run_completed. Set dry_run=false to make real changes. If config.safety.require_dry_run is true, dry_run=false is accepted only after a passing dry run of the same plan_id in this server process, or when bypass_require_dry_run=true is set. If the mutate is rejected by Google ad policy, the error lists the offending text and policy; when those violations are exemptible (common for medical/health keywords), retry the same plan_id with exempt_policy_violations=true."
     )]
     async fn confirm_and_apply(
         &self,

@@ -5,6 +5,43 @@ All notable changes to `mcp-google-ads` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **`require_dry_run` could not be satisfied by a dry run.** The guard only
+  looked at the current call's flags, so with the default
+  `GOOGLE_ADS_REQUIRE_DRY_RUN=true` every `dry_run=false` apply was rejected
+  no matter how many dry runs preceded it, while the error text told the
+  caller to "run with dry_run=true first". The only way through was
+  `bypass_require_dry_run=true`. A passing dry run now sets
+  `dry_run_completed` on the stored plan, and the guard accepts the next
+  `dry_run=false` call for that `plan_id`. The bypass flag still works and
+  is only needed to apply a plan that was never dry-run. Plans are held in
+  process memory, so a server restart still requires drafting again.
+
+### Changed
+
+- **Dry runs validate against the API.** `confirm_and_apply(dry_run=true)` on
+  a mutate plan now sends the operations with `validateOnly=true`, so Google's
+  server-side validation (fields, budget and bidding rules, ad policy) runs
+  and the errors the real apply would hit are reported, with nothing written.
+  Policy-exemption handling is identical to a real apply, so a dry run with
+  `exempt_policy_violations=true` validates exactly what that apply would
+  send. A failing dry run returns the error and leaves the plan unmarked.
+  Recommendation plans (`recommendations:apply` / `recommendations:dismiss`)
+  have no validate-only mode; their dry run is preview-only and reports
+  `validation.status = "SKIPPED"`. Previously a dry run returned the stored
+  preview without contacting Google.
+- Dry runs are now written to the audit log with `dry_run: true` and a
+  `VALIDATED` or `FAILED` result. Previously only real applies were logged,
+  so the `dry_run` field was always `false`.
+- `DryRunRequired` error text and the `confirm_and_apply` tool description
+  now describe the actual rule. Plan previews report `dry_run_completed`
+  and their `instructions` recommend the dry run before the apply.
+- `GoogleAdsClient::mutate_validate_only` added; `ChangePlan` gained the
+  `dry_run_completed` field (serde default `false`).
+
 ## [0.14.0] - 2026-10-16
 
 ### Added

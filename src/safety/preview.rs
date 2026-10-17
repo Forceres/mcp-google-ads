@@ -63,6 +63,11 @@ pub struct ChangePlan {
     /// Tells the agent how to continue the workflow with zero UI action.
     #[serde(default)]
     pub next_action_hint: Option<NextActionHint>,
+    /// Set once `confirm_and_apply(dry_run=true)` has validated this plan.
+    /// Satisfies the `require_dry_run` guard on the following apply. Lives
+    /// only as long as the plan does (in-process; gone after a restart).
+    #[serde(default)]
+    pub dry_run_completed: bool,
 }
 
 impl ChangePlan {
@@ -88,6 +93,7 @@ impl ChangePlan {
             dispatch: PlanDispatch::MutateOperations,
             status_after_apply: None,
             next_action_hint: None,
+            dry_run_completed: false,
         }
     }
 
@@ -119,11 +125,21 @@ impl ChangePlan {
             "customer_id": self.customer_id,
             "changes": self.changes,
             "requires_double_confirm": self.requires_double_confirm,
+            "dry_run_completed": self.dry_run_completed,
             "status": "PENDING_CONFIRMATION",
-            "instructions": format!(
-                "Review the changes above. To apply, call confirm_and_apply with plan_id='{}' and dry_run=false.",
-                self.plan_id
-            ),
+            "instructions": if self.dry_run_completed {
+                format!(
+                    "This plan passed its dry run. To apply, call confirm_and_apply with plan_id='{}' and dry_run=false.",
+                    self.plan_id
+                )
+            } else {
+                format!(
+                    "Review the changes above. To validate against the Google Ads API without writing anything, \
+                     call confirm_and_apply with plan_id='{}' and dry_run=true; then call it again with \
+                     dry_run=false to apply.",
+                    self.plan_id
+                )
+            },
         });
 
         if let Some(obj) = preview.as_object_mut() {

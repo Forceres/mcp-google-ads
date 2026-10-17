@@ -29,9 +29,10 @@ pub enum McpGoogleAdsError {
     #[error("Validation error: {0}")]
     Validation(String),
     #[error(
-        "Safety guard: require_dry_run is enabled but dry_run=false. \
-         Either run with dry_run=true first, or set bypass_require_dry_run=true \
-         to explicitly opt out of the guard for this single apply."
+        "Safety guard: require_dry_run is enabled and this plan has not passed a dry run yet. \
+         Call confirm_and_apply with the same plan_id and dry_run=true first; a passing dry run \
+         is remembered on the plan and the next dry_run=false call goes through. To skip the \
+         check for this single apply, set bypass_require_dry_run=true."
     )]
     DryRunRequired,
     #[error("Safety guard: this plan requires double confirmation. Pass confirmed_twice=true to proceed.")]

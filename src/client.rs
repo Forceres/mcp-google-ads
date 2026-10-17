@@ -459,6 +459,32 @@ impl GoogleAdsClient {
         customer_id: &str,
         operations: Vec<MutateOperation>,
     ) -> Result<MutateResponse> {
+        self.mutate_with_options(customer_id, operations, false)
+            .await
+    }
+
+    /// Validate a mutate request against the Google Ads API without committing it.
+    ///
+    /// Sends the identical request to [`Self::mutate`] with `validateOnly: true`:
+    /// Google runs its full server-side validation (field checks, budget and
+    /// bidding rules, ad policy) and returns the errors the real call would hit,
+    /// but writes nothing. A successful response carries no
+    /// `mutateOperationResponses`.
+    pub async fn mutate_validate_only(
+        &self,
+        customer_id: &str,
+        operations: Vec<MutateOperation>,
+    ) -> Result<MutateResponse> {
+        self.mutate_with_options(customer_id, operations, true)
+            .await
+    }
+
+    async fn mutate_with_options(
+        &self,
+        customer_id: &str,
+        operations: Vec<MutateOperation>,
+        validate_only: bool,
+    ) -> Result<MutateResponse> {
         Self::validate_mutate_operations(&operations).map_err(McpGoogleAdsError::Validation)?;
 
         let normalized_id = Self::normalize_customer_id(customer_id);
@@ -478,6 +504,9 @@ impl GoogleAdsClient {
             // retry would commit another orphan. With partialFailure=false any
             // failing operation aborts the whole request and nothing is written.
             "partialFailure": false,
+            // A dry run sends this exact request with validateOnly=true, so the
+            // errors Google reports are the ones the real apply would hit.
+            "validateOnly": validate_only,
         });
 
         let response = self

@@ -155,7 +155,7 @@ All configuration is via environment variables. No config files.
 | `GOOGLE_ADS_LOGIN_CUSTOMER_ID` | | MCC manager account ID (optional) |
 | `GOOGLE_ADS_MAX_DAILY_BUDGET` | `50.0` | Maximum daily budget allowed per campaign |
 | `GOOGLE_ADS_MAX_BID_INCREASE_PCT` | `100` | Maximum bid increase percentage |
-| `GOOGLE_ADS_REQUIRE_DRY_RUN` | `true` | Default dry_run to true on confirm_and_apply |
+| `GOOGLE_ADS_REQUIRE_DRY_RUN` | `true` | Require a passing dry run of a plan before `confirm_and_apply` accepts `dry_run=false` for it (or `bypass_require_dry_run=true`) |
 | `GOOGLE_ADS_AUDIT_LOG` | `~/.mcp-google-ads/audit.log` | Path for mutation audit log |
 | `GOOGLE_ADS_BLOCKED_OPS` | | Comma-separated list of blocked operations |
 | `GOOGLE_ADS_READ_ONLY` | `false` | Disable all write tools |
@@ -328,7 +328,7 @@ the usual route), since the image contains none.
 
 ### Write (39 tools)
 
-All write tools return a preview. Call `confirm_and_apply` with `dry_run=false` to execute.
+All write tools return a plan preview. Call `confirm_and_apply` with `dry_run=true` to validate the plan against the Google Ads API (`validateOnly`, nothing is written), then again with `dry_run=false` to execute.
 
 | Tool | Description |
 |------|-------------|
@@ -379,18 +379,18 @@ All write tools return a preview. Call `confirm_and_apply` with `dry_run=false` 
 | Guard | Behavior |
 |-------|----------|
 | **Two-step confirm** | Every write returns a plan preview; must call `confirm_and_apply` to execute |
-| **Dry-run default** | `confirm_and_apply` defaults to `dry_run=true` — must explicitly set `false` |
+| **Dry-run default** | `confirm_and_apply` defaults to `dry_run=true` — must explicitly set `false`. A dry run sends the plan with `validateOnly=true`, so Google's full validation (fields, budget rules, ad policy) runs without writing; a pass marks the plan `dry_run_completed`. |
 | **Budget cap** | Rejects campaigns exceeding `GOOGLE_ADS_MAX_DAILY_BUDGET` |
 | **Bid limit** | Rejects bid increases exceeding `GOOGLE_ADS_MAX_BID_INCREASE_PCT` |
 | **Broad + Manual CPC** | Blocks BROAD match with MANUAL_CPC (burns budget) |
 | **PAUSED by default** | New campaigns/ad groups/ads created PAUSED. Response carries `status_after_apply` + `next_action_hint` describing how to flip to `ENABLED` via the `enable_entity` MCP tool — zero UI step needed. |
-| **`require_dry_run` hard guard** | When `GOOGLE_ADS_REQUIRE_DRY_RUN=true`, calling `confirm_and_apply` with `dry_run=false` returns `Err(DryRunRequired)` BEFORE any HTTP traffic. Pass `bypass_require_dry_run=true` for a one-shot override. |
+| **`require_dry_run` hard guard** | When `GOOGLE_ADS_REQUIRE_DRY_RUN=true`, `confirm_and_apply` with `dry_run=false` returns `Err(DryRunRequired)` BEFORE any HTTP traffic unless that plan has passed a dry run in this server process (plans live in memory, so a restart means drafting again). Pass `bypass_require_dry_run=true` for a one-shot override. |
 | **Double-confirm hard guard** | Destructive ops flagged `requires_double_confirm` need `confirmed_twice=true` or return `Err(DoubleConfirmRequired)`. |
 | **Policy exemptions are opt-in** | A mutate blocked by an *exemptible* ad policy is never silently exempted. The error names each policy and the exact offending text; pass `exempt_policy_violations=true` to retry the same plan with `exemptPolicyViolationKeys` (what the Google Ads UI does automatically). Applied exemptions are echoed back as `policy_exemptions_requested`. |
 | **MutateOperation whitelist** | Unknown top-level operation keys (typos, recommendation ops mis-routed) are rejected client-side BEFORE the HTTP call with a clear error pointing at the correct tool. |
 | **Blocked operations** | Configure `GOOGLE_ADS_BLOCKED_OPS` to disable specific tools |
 | **Read-only mode** | Set `GOOGLE_ADS_READ_ONLY=true` to disable all writes |
-| **Audit logging** | Every mutation logged with timestamp, operation, changes, dry_run status |
+| **Audit logging** | Every apply and every dry run logged with timestamp, operation, changes, dry_run status and result |
 
 ---
 
